@@ -417,8 +417,6 @@ def cli_preview(path="preview.png", dark=True, width=None, demo=False):
     snaps = demo_snapshots(cfg["providers"]) if demo else poll(cfg["providers"])
     renderer = Renderer(cfg)
     h = 27
-    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 16, 16)
-    probe = cairo.Context(surface)
     w = int(width or renderer.natural_width(snaps))
     surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, w, h)
     ctx = cairo.Context(surface)
@@ -429,7 +427,6 @@ def cli_preview(path="preview.png", dark=True, width=None, demo=False):
     renderer.draw(ctx, w, h, fg, snaps)
     surface.write_to_png(path)
     print(f"{path} ({w}×{h})")
-    del probe
     return 0
 
 
