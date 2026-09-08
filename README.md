@@ -26,6 +26,17 @@ cd claude-skills
 bash instalar-skills.sh
 ```
 
+### [`codex/`](codex/)
+
+Instalador idempotente para la barra de estado nativa de Codex CLI. Muestra
+modelo y esfuerzo, directorio, rama Git, contexto, límites de 5 horas/semanal,
+créditos y coste estimado, preservando el resto de `~/.codex/config.toml`.
+
+```bash
+cd codex
+bash instalar-statusline.sh
+```
+
 ## Licencia
 
 MIT — ver [LICENSE](LICENSE).

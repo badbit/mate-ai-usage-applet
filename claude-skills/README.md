@@ -35,14 +35,17 @@ Resumen del día: agenda de Google Calendar, correo personal (disroot), correo d
 
 **Requisitos en el equipo destino** — sin esto, el skill se instala pero falla al correr:
 
-1. **himalaya** con la cuenta `Personal` configurada (`~/.config/himalaya/config.toml`) y la contraseña en el llavero:
-   `secret-tool store --label='himalaya' service himalaya account badbit@disroot.org`
-2. **MCP de TickTick** en scope de usuario:
-   `claude mcp add --transport http --scope user ticktick https://mcp.ticktick.com`
-   y autenticar con `/mcp`.
+1. **himalaya** con la cuenta personal de disroot configurada (`~/.config/himalaya/config.toml`), con contraseña en el llavero del sistema, nunca en `password.raw`:
+   - Linux: `secret-tool store --label='himalaya' service himalaya account badbit@disroot.org`, y en el TOML `password.cmd = "secret-tool lookup service himalaya account badbit@disroot.org"`.
+   - macOS: `security add-generic-password -a badbit@disroot.org -s himalaya -w '<password>' -U`, y en el TOML `password.cmd = "security find-generic-password -a badbit@disroot.org -s himalaya -w"`.
+
+   El skill ya no asume un nombre de cuenta fijo ni una versión concreta del CLI de himalaya: los detecta en tiempo de ejecución (ver `hoy/SKILL.md`, pasos 0 y a).
+2. **TickTick accesible por MCP**, ya sea como servidor de usuario (`claude mcp add --transport http --scope user ticktick https://mcp.ticktick.com` + autenticar con `/mcp`) o como conector de cuenta de claude.ai — el skill busca las herramientas por palabra clave, no por nombre exacto, así que sirve cualquiera de las dos formas.
 3. **Conectores de Gmail y Google Calendar** de claude.ai activos, con la cuenta `lozano.miguel@uabc.edu.mx`.
 
-**Ojo con la ruta de memoria:** el skill lee `~/.claude/projects/-home-badbit/memory/`, que corresponde al directorio de trabajo `/home/badbit`. Si en otro equipo el usuario o el home cambian, hay que ajustar esa ruta dentro de `hoy/SKILL.md`.
+**Ojo con la ruta de memoria:** el skill lee `~/.claude/projects/<cwd-con-guiones>/memory/`, que depende del equipo y de desde dónde se invoque Claude Code (p. ej. `-home-badbit` en Linux invocando desde el home, `-Users-miguellozano` en el iMac). El propio skill dice cómo verificarla con `ls ~/.claude/projects/`; no hace falta editar nada a mano salvo que la ruta real no sea obvia.
+
+**Verificado compatible con macOS** (2026-09-07): probado en un iMac sin `jq` y sin GNU date nativo (solo `gdate` de Homebrew coreutils) — por eso el skill calcula fechas con `python3` en vez de `date -d`, y detecta cuenta/CLI de himalaya y nombre de herramienta de TickTick en vez de asumirlos.
 
 ## Barras de estado
 
