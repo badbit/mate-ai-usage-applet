@@ -105,6 +105,12 @@ El mismo modo con tema claro:
 Clic izquierdo sobre el applet: refresca ya y, en `rotate`, pasa al siguiente
 servicio. El tooltip detalla porcentajes, plan y cuándo reinicia cada ventana.
 
+Con **clic derecho** puedes marcar o desmarcar **Mostrar Claude Code** y
+**Mostrar Codex**. El cambio se aplica de inmediato y se recuerda en
+`~/.config/mate-ai-usage-applet.json`; no consulta ni muestra las credenciales
+del servicio oculto. Puedes volver a marcar Claude Code cuando renueves la
+suscripción.
+
 ## Diagnóstico
 
 ```bash

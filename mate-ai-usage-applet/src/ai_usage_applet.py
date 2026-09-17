@@ -29,6 +29,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
@@ -71,9 +72,50 @@ def load_config():
         print(f"[ai-usage-applet] config ignorada: {e}", file=sys.stderr)
     if cfg["layout"] not in ("grid", "compact", "rotate"):
         cfg["layout"] = DEFAULTS["layout"]
-    known = [p for p in cfg["providers"] if p in PROVIDERS]
-    cfg["providers"] = known or list(DEFAULTS["providers"])
+    if isinstance(cfg["providers"], list):
+        # Una lista vacía es válida: permite ocultar temporalmente todo sin
+        # que al reiniciar el panel vuelvan a aparecer los dos servicios.
+        cfg["providers"] = [p for p in cfg["providers"] if p in PROVIDERS]
+    else:
+        cfg["providers"] = list(DEFAULTS["providers"])
     return cfg
+
+
+def save_providers(providers):
+    """Guarda la selección de servicios sin borrar otras preferencias.
+
+    El archivo se reemplaza atómicamente para que el applet nunca deje una
+    configuración JSON a medias si el panel se cierra mientras escribe.
+    """
+    providers = [p for p in providers if p in PROVIDERS]
+    user = {}
+    try:
+        with open(CONFIG_PATH) as f:
+            loaded = json.load(f)
+        if isinstance(loaded, dict):
+            user = loaded
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        print(f"[ai-usage-applet] no se pudo conservar la config: {e}",
+              file=sys.stderr)
+
+    user["providers"] = providers
+    config_dir = os.path.dirname(CONFIG_PATH)
+    os.makedirs(config_dir, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=".mate-ai-usage-applet-",
+                                     suffix=".json", dir=config_dir)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(user, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        os.replace(temporary, CONFIG_PATH)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -510,6 +552,40 @@ def build_widget_class():
             self.refresh()
             return True
 
+        def _toggle_provider(self, item, key):
+            old_providers = list(self.cfg["providers"])
+            providers = [p for p in self.cfg["providers"] if p != key]
+            if item.get_active():
+                # Respeta el orden fijo Claude/Codex al volver a mostrar uno.
+                providers.append(key)
+                providers.sort(key=("claude", "chatgpt").index)
+            self.cfg["providers"] = providers
+            try:
+                save_providers(providers)
+            except OSError as e:
+                # La casilla vuelve al estado real si no se pudo persistir.
+                print(f"[ai-usage-applet] no se pudo guardar la selección: {e}",
+                      file=sys.stderr)
+                self.cfg["providers"] = old_providers
+                item.handler_block_by_func(self._toggle_provider)
+                item.set_active(not item.get_active())
+                item.handler_unblock_by_func(self._toggle_provider)
+                return
+            self.snaps = [
+                Snapshot(k, PROVIDERS[k]["name"], PROVIDERS[k]["short"],
+                         PROVIDERS[k]["color"])
+                for k in providers
+            ]
+            for snap in self.snaps:
+                snap.error = "…"
+            self.rotate_index = 0
+            self.renderer = Renderer(self.cfg)
+            self.set_size_request(int(self.renderer.natural_width(self.snaps)), -1)
+            self.queue_resize()
+            self.queue_draw()
+            if providers:
+                self.refresh()
+
     return UsageWidget, Gtk
 
 
@@ -544,6 +620,21 @@ def run_applet():
     def applet_fill(applet):
         widget = UsageWidget(load_config())
         applet.add(_wrap_in_event_box(Gtk, widget))
+        actions = Gtk.ActionGroup.new("AiUsageAppletActions")
+        for key, label in (("claude", "Mostrar Claude Code"),
+                           ("chatgpt", "Mostrar Codex")):
+            action = Gtk.ToggleAction.new(f"Show{key.title()}", label,
+                                          f"Muestra las barras de {label[8:]}",
+                                          None)
+            action.set_active(key in widget.cfg["providers"])
+            action.connect("toggled", widget._toggle_provider, key)
+            actions.add_action(action)
+        # El menú de contexto pertenece al contenedor MATE, no al DrawingArea.
+        # setup_menu lo integra con «Mover», «Quitar del panel», etc.
+        applet.setup_menu(
+            '<menuitem name="Show Claude" action="ShowClaude" />'
+            '<menuitem name="Show Codex" action="ShowChatgpt" />', actions)
+        applet._ai_usage_actions = actions  # mantiene viva la referencia Python
         applet.set_flags(MatePanelApplet.AppletFlags.EXPAND_MINOR)
         applet.show_all()
         return True
