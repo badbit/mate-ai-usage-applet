@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Applet de panel MATE con los límites de uso de Claude y ChatGPT.
 
-Dibuja una rejilla de barras de progreso en el panel: para cada servicio, la
-ventana corta (5 h) y la larga (7 d), con el mismo dato que muestran
-`/usage` en Claude Code y `/status` en Codex CLI.
+Dibuja una rejilla de barras de progreso en el panel: para cada servicio, las
+ventanas de uso que aplique su plan (5 h y/o 7 d), con el mismo dato que
+muestran `/usage` en Claude Code y `/status` en Codex CLI.
 
 Los datos se leen de los endpoints oficiales usando las credenciales que ya
 tienes en disco:
@@ -51,6 +51,9 @@ DEFAULTS = {
     # rotate: un servicio a la vez, alternando cada rotate_seconds
     "layout": "grid",
     "providers": ["claude", "chatgpt"],
+    # auto detecta las ventanas que Codex devuelve para el plan.  "weekly"
+    # permite forzar una sola barra si OpenAI cambia de nuevo el formato.
+    "codex_windows": "auto",
     "poll_seconds": 300,
     "rotate_seconds": 6,
     "column_width": 150,   # ancho por servicio, en píxeles
@@ -72,6 +75,8 @@ def load_config():
         print(f"[ai-usage-applet] config ignorada: {e}", file=sys.stderr)
     if cfg["layout"] not in ("grid", "compact", "rotate"):
         cfg["layout"] = DEFAULTS["layout"]
+    if cfg["codex_windows"] not in ("auto", "both", "weekly"):
+        cfg["codex_windows"] = DEFAULTS["codex_windows"]
     if isinstance(cfg["providers"], list):
         # Una lista vacía es válida: permite ocultar temporalmente todo sin
         # que al reiniciar el panel vuelvan a aparecer los dos servicios.
@@ -135,7 +140,7 @@ class Snapshot:
     """Lo que sabemos de un servicio en un instante dado."""
 
     __slots__ = ("key", "name", "short", "color", "session", "weekly",
-                 "plan", "error", "extra")
+                 "plan", "error", "extra", "codex_windows")
 
     def __init__(self, key, name, short, color):
         self.key, self.name, self.short, self.color = key, name, short, color
@@ -143,6 +148,7 @@ class Snapshot:
         self.plan = None
         self.error = None
         self.extra = []                     # [(etiqueta, Window)] para el tooltip
+        self.codex_windows = "auto"
 
 
 def _http_json(url, headers, timeout=20):
@@ -213,10 +219,28 @@ def fetch_chatgpt(snap):
         "Content-Type": "application/json",
     })
     limits = data.get("rate_limit") or {}
-    primary = limits.get("primary_window") or {}
-    secondary = limits.get("secondary_window") or {}
-    snap.session = Window(primary.get("used_percent"), primary.get("reset_at"))
-    snap.weekly = Window(secondary.get("used_percent"), secondary.get("reset_at"))
+    primary = limits.get("primary_window")
+    secondary = limits.get("secondary_window")
+
+    # Plus solía entregar 5 h como primary y 7 d como secondary. En Pro,
+    # Codex entrega solamente una primary de 7 d y secondary es null. No
+    # fabriquemos una segunda barra de 0 %: además primary ya es la semanal.
+    primary_seconds = (primary or {}).get("limit_window_seconds") or 0
+    primary_is_weekly = primary_seconds >= 6 * 86400
+    mode = snap.codex_windows
+    if mode == "weekly":
+        weekly = secondary or primary
+        snap.session = None
+        snap.weekly = (Window(weekly.get("used_percent"), weekly.get("reset_at"))
+                       if weekly else None)
+    elif mode == "auto" and primary_is_weekly and not secondary:
+        snap.session = None
+        snap.weekly = Window(primary.get("used_percent"), primary.get("reset_at"))
+    else:
+        snap.session = (Window(primary.get("used_percent"), primary.get("reset_at"))
+                        if primary else None)
+        snap.weekly = (Window(secondary.get("used_percent"), secondary.get("reset_at"))
+                       if secondary else None)
     snap.plan = data.get("plan_type")
 
 
@@ -238,12 +262,14 @@ PROVIDERS = {
 }
 
 
-def poll(keys):
+def poll(keys, cfg=None):
     """Consulta cada servicio y devuelve su Snapshot (nunca lanza)."""
     snaps = []
     for key in keys:
         spec = PROVIDERS[key]
         snap = Snapshot(key, spec["name"], spec["short"], spec["color"])
+        if key == "chatgpt" and cfg:
+            snap.codex_windows = cfg.get("codex_windows", "auto")
         try:
             spec["fetch"](snap)
         except FileNotFoundError:
@@ -277,6 +303,13 @@ def fmt_reset(epoch):
     return f"{h} h {m} min" if h else f"{m} min"
 
 
+def window_rows(snap, short=False):
+    """Devuelve solo los límites realmente aplicables a un proveedor."""
+    labels = (("5h", "Sesión (5 h)"), ("7d", "Semanal (7 d)"))
+    return [(labels[0][0 if short else 1], snap.session),
+            (labels[1][0 if short else 1], snap.weekly)]
+
+
 def tooltip_text(snaps):
     blocks = []
     for snap in snaps:
@@ -286,7 +319,7 @@ def tooltip_text(snaps):
             blocks.append(f"{head}\n  error: {snap.error} ({hint})")
             continue
         lines = [head]
-        rows = [("Sesión (5 h)", snap.session), ("Semanal (7 d)", snap.weekly)]
+        rows = window_rows(snap)
         rows += [(label, win) for label, win in snap.extra]
         for label, win in rows:
             if win is None:
@@ -373,8 +406,11 @@ class Renderer:
             self._draw_column(ctx, gap * i + col_w * i, col_w, h, fg, font, snap)
 
     def _draw_column(self, ctx, x0, cw, h, fg, font, snap):
-        rows = (("5h", snap.session), ("7d", snap.weekly))
-        row_h = h / 2
+        rows = [(label, win) for label, win in window_rows(snap, short=True)
+                if win is not None]
+        if not rows:
+            rows = [("—", None)]
+        row_h = h / len(rows)
         bar_h = max(5, min(11, row_h - 4))
         label_w = max(self._width_of(ctx, font, f"{snap.short} {n}") for n, _ in rows)
         pct_w = self._width_of(ctx, font, "100%")
@@ -419,14 +455,17 @@ class Renderer:
                 self._text(ctx, font, f"⚠ {snap.error}", short_w + 6, cy,
                            (0.96, 0.26, 0.21, fg[3]))
                 continue
-            s_pct = snap.session.pct if snap.session else 0
-            wk_pct = snap.weekly.pct if snap.weekly else 0
+            windows = [win for _label, win in window_rows(snap, short=True)
+                       if win is not None]
+            if not windows:
+                self._text(ctx, font, "—", w, cy, fg, align=2)
+                continue
             x = w
-            x -= self._text(ctx, font, f"{wk_pct}%", x, cy,
-                            bar_color(wk_pct) + (fg[3],), align=2)
-            x -= self._text(ctx, font, " / ", x, cy, fg, align=2)
-            self._text(ctx, font, f"{s_pct}%", x, cy,
-                       bar_color(s_pct) + (fg[3],), align=2)
+            for index, win in enumerate(reversed(windows)):
+                x -= self._text(ctx, font, f"{win.pct}%", x, cy,
+                                bar_color(win.pct) + (fg[3],), align=2)
+                if index + 1 < len(windows):
+                    x -= self._text(ctx, font, " / ", x, cy, fg, align=2)
 
 
 # ---------------------------------------------------------------------------
@@ -434,7 +473,7 @@ class Renderer:
 
 def cli_check():
     cfg = load_config()
-    snaps = poll(cfg["providers"])
+    snaps = poll(cfg["providers"], cfg)
     print(tooltip_text(snaps))
     return 0 if all(s.error is None for s in snaps) else 1
 
@@ -456,7 +495,8 @@ def demo_snapshots(keys):
 
 def cli_preview(path="preview.png", dark=True, width=None, demo=False):
     cfg = load_config()
-    snaps = demo_snapshots(cfg["providers"]) if demo else poll(cfg["providers"])
+    snaps = (demo_snapshots(cfg["providers"]) if demo
+             else poll(cfg["providers"], cfg))
     renderer = Renderer(cfg)
     h = 27
     w = int(width or renderer.natural_width(snaps))
@@ -513,7 +553,7 @@ def build_widget_class():
             keys = list(self.cfg["providers"])
 
             def work():
-                snaps = poll(keys)
+                snaps = poll(keys, self.cfg)
                 GLib.idle_add(self._apply, snaps)
 
             threading.Thread(target=work, daemon=True).start()

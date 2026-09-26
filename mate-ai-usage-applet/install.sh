@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Instalador del applet «Uso de IA» para el panel de MATE.
-# Muestra cuatro barras (sesión 5 h y semanal 7 d, para Claude y ChatGPT)
+# Muestra las barras que apliquen a cada plan (sesión 5 h y/o semanal 7 d)
 # con los mismos datos que /usage en Claude Code y /status en Codex CLI.
 #
 #   bash install.sh              # instalar o actualizar
@@ -180,7 +180,7 @@ Description=Límites de uso de asistentes de IA
 
 [AiUsageApplet]
 Name=Uso de IA
-Description=Barras de uso de sesión (5 h) y semanal (7 d) de Claude y ChatGPT
+Description=Barras de uso de Claude y ChatGPT/Codex
 Icon=utilities-system-monitor
 MateComponentId=OAFIID:MATE_AiUsageApplet;
 EOF

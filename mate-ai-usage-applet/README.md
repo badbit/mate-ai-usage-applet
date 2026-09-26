@@ -1,8 +1,9 @@
 # Applet «Uso de IA» para el panel de MATE
 
 Barras de uso de **Claude** y **ChatGPT** directamente en el panel de MATE:
-la ventana de sesión (5 h) y la semanal (7 d) de cada servicio, con el mismo
-dato que muestran `/usage` en Claude Code y `/status` en Codex CLI.
+las ventanas de uso que aplique cada plan (sesión de 5 h y/o semanal de 7 d),
+con el mismo dato que muestran `/usage` en Claude Code y `/status` en Codex
+CLI.
 
 ![Applet en el panel](docs/preview@2x.png)
 
@@ -66,6 +67,7 @@ Opcional, en `~/.config/mate-ai-usage-applet.json`:
 {
   "layout": "grid",
   "providers": ["claude", "chatgpt"],
+  "codex_windows": "auto",
   "poll_seconds": 300,
   "rotate_seconds": 6,
   "column_width": 150,
@@ -78,6 +80,7 @@ Opcional, en `~/.config/mate-ai-usage-applet.json`:
 |---|---|---|
 | `layout` | `grid` | `grid`, `compact` o `rotate` (ver abajo). |
 | `providers` | ambos | Lista y orden de servicios: `claude`, `chatgpt`. |
+| `codex_windows` | `auto` | Ventanas de Codex: `auto` detecta los planes con límite semanal único (Pro); `both` conserva las dos ventanas cuando existan; `weekly` fuerza solo la semanal. |
 | `poll_seconds` | `300` | Intervalo de sondeo, mínimo 30 s. |
 | `rotate_seconds` | `6` | Solo en `rotate`: segundos por servicio. |
 | `column_width` | `150` | Ancho en píxeles por servicio. |
@@ -86,7 +89,8 @@ Opcional, en `~/.config/mate-ai-usage-applet.json`:
 
 Reinicia el panel (`mate-panel --replace &`) para aplicar los cambios.
 
-**`grid`** — una columna por servicio, filas 5 h y 7 d (310 px):
+**`grid`** — una columna por servicio, con filas para los límites que aplique
+el plan (normalmente 5 h y 7 d; Codex Pro muestra solo la semanal) (310 px):
 
 ![grid](docs/preview@2x.png)
 
